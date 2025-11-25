@@ -1,11 +1,11 @@
-import os
+﻿import os
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-ICON_READY = "✓"
+ICON_READY = "âś“"
 ICON_WAITING = ""
-STAR_SYMBOL = "★"
-HEART_SYMBOL = "❤"
+STAR_SYMBOL = "â…"
+HEART_SYMBOL = "âť¤"
 
 # Roles
 ROLE_UNASSIGNED = "unassigned"
@@ -16,10 +16,10 @@ ROLE_IGNORE = "ignore"
 
 ROLE_DISPLAY = {
     ROLE_UNASSIGNED: "[ ? ] Unassigned",
-    ROLE_MAIN: "[ ★ ] Main Game",
-    ROLE_SETUP: "[ 🔧 ] Setup",
-    ROLE_CUSTOM: "[ 📂 ] Custom / Other",
-    ROLE_IGNORE: "[ 🚫 ] Ignore"
+    ROLE_MAIN: "[ â… ] Main Game",
+    ROLE_SETUP: "[ đź”§ ] Setup",
+    ROLE_CUSTOM: "[ đź“‚ ] Custom / Other",
+    ROLE_IGNORE: "[ đźš« ] Ignore"
 }
 ROLE_KEYS = {v: k for k, v in ROLE_DISPLAY.items()}
 
