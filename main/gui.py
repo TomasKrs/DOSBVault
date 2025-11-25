@@ -16,6 +16,7 @@ from constants import *
 from utils import format_size, truncate_text, get_folder_size, get_file_size
 from settings import SettingsManager
 from logic import GameLogic, HAS_PILLOW
+from gui_settings import SettingsWindow # <-- Vlastné okno pre nastavenia
 
 # Try to import ImageTk and ImageGrab only if Pillow present
 Image = None
@@ -328,8 +329,8 @@ class DOSManagerApp(tb.Window):
             self.btn_uninstall.configure(state=tk.NORMAL, bootstyle="danger-outline")
             self.btn_backup.configure(state=tk.NORMAL, bootstyle="info-outline")
             isos = self.logic.get_mounted_isos(name)
-            iso_txt = "\n".join([f"• D:\\ {iso}" for iso in isos]) if isos else "None"
-            sheet_text = f"GAME: {name}\n\n[ DOSBox Shortcuts ]\nCtrl+F12  : Speed Up\nCtrl+F11  : Slow Down\nCtrl+F4   : Swap CD/Refresh\nAlt+Enter : Fullscreen\nCtrl+F5   : Screenshot\nCtrl+F10  : Capture Mouse\n\n[ Mounted CDs ]\n{iso_txt}"
+            iso_txt = "\\n".join([f"• D:\\ {iso}" for iso in isos]) if isos else "None"
+            sheet_text = f"GAME: {name}\\n\\n[ DOSBox Shortcuts ]\\nCtrl+F12  : Speed Up\\nCtrl+F11  : Slow Down\\nCtrl+F4   : Swap CD/Refresh\\nAlt+Enter : Fullscreen\\nCtrl+F5   : Screenshot\\nCtrl+F10  : Lock/Unlock Mouse\\nCtrl+F9   : Kill DOSBox\\n\\n[ MOUNTED ISOs ]\\n{iso_txt}"
             self.lbl_sheet.config(text=sheet_text)
         else:
             self.btn_install.configure(state=tk.NORMAL, bootstyle="primary")
@@ -499,151 +500,12 @@ class DOSManagerApp(tb.Window):
             self.win_settings.lift()
             return
             
-        top = tb.Toplevel(self); top.title("Settings"); top.geometry("600x650")
-        self.win_settings = top
-        
-        # --- PREMENNÉ ---
-        v_root = tk.StringVar(value=self.settings.get("root_dir"))
-        v_zip = tk.StringVar(value=self.settings.get("zip_dir"))
-        v_exe = tk.StringVar(value=self.settings.get("dosbox_exe"))
-        v_conf = tk.StringVar(value=self.settings.get("global_conf"))
-        v_capture = tk.StringVar(value=self.settings.get("capture_dir"))
-        v_theme = tk.StringVar(value=self.settings.get("theme"))
-
-        # --- TABS ---
-        tabs = tb.Notebook(top)
-        tabs.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        tab_gen = tb.Frame(tabs)
-        tab_app = tb.Frame(tabs)
-        tabs.add(tab_gen, text="System & Paths")
-        tabs.add(tab_app, text="Appearance & Themes")
-        
-        # --- TAB 1: SYSTEM ---
-        def browse_path(var, is_file=False):
-            if is_file: p = filedialog.askopenfilename(filetypes=[("Executable/Config", "*.*")], parent=top)
-            else: p = filedialog.askdirectory(parent=top)
-            if p: var.set(self.settings._make_relative(p))
-            
-        pad = 5
-        def create_row(parent, label, var, cmd=None, placeholder=None):
-            f = tb.Frame(parent); f.pack(fill=tk.X, padx=10, pady=pad)
-            tb.Label(f, text=label, bootstyle="inverse-dark").pack(anchor="w")
-            row_inner = tb.Frame(f); row_inner.pack(fill=tk.X, expand=True)
-            ent = tb.Entry(row_inner, textvariable=var)
-            ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            if cmd: tb.Button(row_inner, text="...", command=cmd, bootstyle="outline").pack(side=tk.RIGHT, padx=(5,0))
-            if placeholder: tb.Label(f, text=placeholder, font=("Segoe UI", 8), bootstyle="secondary").pack(anchor="w")
-
-        create_row(tab_gen, "Installed Games (Root Dir):", v_root, lambda: browse_path(v_root, False))
-        create_row(tab_gen, "Zipped Games (Source Dir):", v_zip, lambda: browse_path(v_zip, False))
-        create_row(tab_gen, "DOSBox Executable (.exe):", v_exe, lambda: browse_path(v_exe, True))
-        create_row(tab_gen, "Global Template Config (.conf):", v_conf, lambda: browse_path(v_conf, True))
-        create_row(tab_gen, "DOSBox Capture Folder Name/Path:", v_capture, lambda: browse_path(v_capture, False), "Default: 'capture'")
-
-        lbl_status = tb.Label(tab_gen, text="", font=("Segoe UI", 9, "bold"), wraplength=530, justify="center")
-        lbl_status.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
-
-        def check_portability(*args):
-            issues = []
-            def is_path_portable(val):
-                if not val: return True
-                if not os.path.isabs(val): return True
-                if val.startswith(BASE_DIR): return True
-                return False
-            if not is_path_portable(v_root.get()): issues.append("Root Dir")
-            if not is_path_portable(v_zip.get()): issues.append("Zipped Games")
-            if not is_path_portable(v_exe.get()): issues.append("DOSBox EXE")
-            if issues: lbl_status.config(text=f"NOT PORTABLE: {', '.join(issues)}", bootstyle="danger")
-            else: lbl_status.config(text="PORTABLE MODE ACTIVE", bootstyle="success")
-
-        # trace_add guards for different tkinter versions
-        try:
-            v_root.trace_add("write", lambda *a: check_portability())
-            v_exe.trace_add("write", lambda *a: check_portability())
-        except Exception:
-            v_root.trace("w", lambda *a: check_portability())
-            v_exe.trace("w", lambda *a: check_portability())
-        check_portability()
-
-        # --- TAB 2: APPEARANCE ---
-        f_thm = tb.Frame(tab_app); f_thm.pack(fill=tk.X, padx=10, pady=15)
-        tb.Label(f_thm, text="Select Visual Theme:", bootstyle="inverse-dark").pack(anchor="w")
-        
-        all_themes = sorted(self.style.theme_names())
-        cb_thm = tb.Combobox(f_thm, values=all_themes, textvariable=v_theme, state="readonly")
-        cb_thm.pack(fill=tk.X, pady=(5, 10))
-        
-        def open_themes_folder():
-            themes_dir = os.path.join(BASE_DIR, "themes")
-            if not os.path.exists(themes_dir): os.makedirs(themes_dir)
-            try:
-                if os.name == 'nt': os.startfile(themes_dir)
-                else: subprocess.call(['xdg-open', themes_dir])
-            except Exception:
-                logger.exception("Failed to open themes folder %s", themes_dir)
-            
-        tb.Button(tab_app, text="📂 Open Themes Folder", command=open_themes_folder, bootstyle="info-outline").pack(fill=tk.X, padx=10)
-        
-        # --- THEME CREATOR LOGIC ---
-        # Skontrolujeme, ci je 'ttkcreator' dostupny
-        creator_installed = importlib.util.find_spec("ttkcreator") is not None
-        
-        f_creator = tb.Frame(tab_app)
-        f_creator.pack(fill=tk.X, padx=10, pady=20)
-        tb.Label(f_creator, text="Theme Creator Tool:", bootstyle="inverse-dark").pack(anchor="w")
-        
-        def run_installer():
-            try:
-                btn_install.configure(state="disabled", text="Installing... (Please wait)")
-                top.update()
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "ttkcreator"])
-                messagebox.showinfo("Success", "Theme Creator installed successfully!\nYou may launch it now.")
-                btn_install.pack_forget()
-                btn_launch.pack(fill=tk.X, pady=5)
-            except Exception as e:
-                logger.exception("Failed to install ttkcreator")
-                messagebox.showerror("Error", f"Installation failed: {e}")
-                btn_install.configure(state="normal", text="📥 Install Theme Creator")
-
-        def run_creator():
-            try:
-                subprocess.Popen([sys.executable, "-m", "ttkcreator"])
-            except Exception:
-                logger.exception("Failed to launch ttkcreator")
-                messagebox.showerror("Error", f"Failed to launch Theme Creator")
-
-        btn_install = tb.Button(f_creator, text="📥 Install Theme Creator (pip install ttkcreator)", command=run_installer, bootstyle="warning-outline")
-        btn_launch = tb.Button(f_creator, text="🎨 Launch Theme Creator", command=run_creator, bootstyle="success-outline")
-
-        if creator_installed:
-            btn_launch.pack(fill=tk.X, pady=5)
-        else:
-            btn_install.pack(fill=tk.X, pady=5)
-        
-        info_txt = ("\nCreate a theme using the tool above, save the .json file\n"
-                    "into the 'themes' folder (Open Themes Folder), and restart.")
-        tb.Label(tab_app, text=info_txt, justify=tk.LEFT, bootstyle="secondary").pack(padx=10, anchor="w")
-
-        # --- SAVE ---
-        def save():
-            old_theme = self.settings.get("theme")
-            self.settings.set("root_dir", v_root.get())
-            self.settings.set("zip_dir", v_zip.get())
-            self.settings.set("dosbox_exe", v_exe.get())
-            self.settings.set("global_conf", v_conf.get())
-            self.settings.set("capture_dir", v_capture.get())
-            self.settings.set("theme", v_theme.get())
-            self.settings.save()
-            
-            if old_theme != v_theme.get():
-                top.destroy()
-                self.restart_program()
-            else:
-                self.refresh_library()
-                top.destroy()
-
-        tb.Button(top, text="Save Settings & Restart if needed", command=save, bootstyle="success").pack(pady=10, fill=tk.X, padx=10)
+        self.win_settings = SettingsWindow(
+            parent=self, 
+            settings=self.settings, 
+            restart_callback=self.restart_program, 
+            refresh_callback=self.refresh_library
+        )
 
     def open_edit_window(self):
         sel = self.tree.selection()
@@ -1061,7 +923,7 @@ class DOSManagerApp(tb.Window):
     def open_organize_dialog(self, zip_name):
         current_name = os.path.splitext(zip_name)[0]
         new_full_name = simpledialog.askstring("Standardize Structure - Step 1/2", 
-            "Enter Full Game Name (Main Folder):\nThis will rename the game in the list.",
+            "Enter Full Game Name (Main Folder):\\nThis will rename the game in the list.",
             initialvalue=current_name)
         if not new_full_name: return 
         new_full_name = new_full_name.strip()
@@ -1074,7 +936,7 @@ class DOSManagerApp(tb.Window):
         if not dos_name:
             default_dos = re.sub(r'[^a-zA-Z0-9]', '', new_full_name)[:8].upper()
             dos_name = simpledialog.askstring("Standardize Structure - Step 2/2", 
-                f"Enter 8-char MS-DOS name for inner folder:\n(Files will be moved to drives/c/DOSNAME)",
+                f"Enter 8-char MS-DOS name for inner folder:\\n(Files will be moved to drives/c/DOSNAME)",
                 initialvalue=default_dos)
         if dos_name:
             dos_name = re.sub(r'[^a-zA-Z0-9]', '', dos_name)[:8].upper()
@@ -1082,5 +944,5 @@ class DOSManagerApp(tb.Window):
             if new_zip:
                 self.refresh_library()
                 if new_zip in self.tree.get_children(): self.tree.selection_set(new_zip); self.tree.see(new_zip)
-                messagebox.showinfo("Success", f"Game organized.\nMain Folder: {new_full_name}\nDOS Path: C:\\{dos_name}")
+                messagebox.showinfo("Success", f"Game organized.\\nMain Folder: {new_full_name}\\nDOS Path: C:\\\\{dos_name}")
             else: messagebox.showerror("Error", "Failed to organize game folder.")
