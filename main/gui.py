@@ -8,32 +8,15 @@ import webbrowser
 import json
 import subprocess
 import importlib.util
-import re
-import logging
 
 # Imports from our modules
 from constants import *
 from utils import format_size, truncate_text, get_folder_size, get_file_size
 from settings import SettingsManager
 from logic import GameLogic, HAS_PILLOW
-from gui_settings import SettingsWindow # <-- Vlastné okno pre nastavenia
 
-# Try to import ImageTk and ImageGrab only if Pillow present
-Image = None
-ImageTk = None
-ImageGrab = None
 if HAS_PILLOW:
-    try:
-        from PIL import Image as PILImage, ImageTk as PILImageTk, ImageGrab as PILImageGrab
-        Image = PILImage
-        ImageTk = PILImageTk
-        ImageGrab = PILImageGrab
-    except Exception:
-        Image = None
-        ImageTk = None
-        ImageGrab = None
-
-logger = logging.getLogger(__name__)
+    from PIL import Image, ImageTk, ImageGrab
 
 class DOSManagerApp(tb.Window):
     def __init__(self):
@@ -64,11 +47,7 @@ class DOSManagerApp(tb.Window):
         self.current_img_index = 0
 
         self.search_var = tk.StringVar()
-        # modern trace API to avoid AttributeError with bound methods
-        try:
-            self.search_var.trace_add("write", lambda *args: self.on_search_change())
-        except Exception:
-            self.search_var.trace("w", lambda *args: self.on_search_change())
+        self.search_var.trace("w", self.on_search_change)
         
         self.fav_only_var = tk.BooleanVar(value=False)
         self.sort_col = "name"
@@ -91,9 +70,9 @@ class DOSManagerApp(tb.Window):
                     try:
                         full_path = os.path.join(themes_dir, f)
                         self.style.load_user_themes(full_path)
-                        logger.info("Loaded custom theme: %s", f)
-                    except Exception:
-                        logger.exception("Failed to load theme %s", f)
+                        print(f"Loaded custom theme: {f}")
+                    except Exception as e:
+                        print(f"Failed to load theme {f}: {e}")
 
     def init_ui(self):
         self.columnconfigure(0, weight=0)
@@ -143,10 +122,8 @@ class DOSManagerApp(tb.Window):
         # TOOLS
         f_tools = tb.Frame(self.frame_left)
         f_tools.pack(pady=5)
-        # --- ZMENA TEXTU A ŠÍRKY ---
-        self.btn_edit = tb.Button(f_tools, text="✎ Edit Game Details", command=self.open_edit_window, bootstyle="warning", width=18, state=tk.DISABLED)
+        self.btn_edit = tb.Button(f_tools, text="✎ Configuration", command=self.open_edit_window, bootstyle="warning", width=15, state=tk.DISABLED)
         self.btn_edit.pack(side=tk.LEFT, padx=5)
-        
         self.btn_list = tb.Button(f_tools, text="☰ List", command=self.toggle_list, bootstyle="secondary-outline", width=6)
         self.btn_list.pack(side=tk.LEFT, padx=5)
         self.btn_backup = tb.Button(f_tools, text="💾 Backup Save", command=self.backup_save, bootstyle="info-outline", width=15, state=tk.DISABLED)
@@ -235,11 +212,7 @@ class DOSManagerApp(tb.Window):
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self.show_tree_context)
-        # Paste screenshot
-        try:
-            self.bind('<Control-v>', self.paste_screenshot)
-        except Exception:
-            pass
+        self.bind('<Control-v>', self.paste_screenshot)
 
     def sort_tree(self, col):
         if self.sort_col == col:
@@ -303,16 +276,13 @@ class DOSManagerApp(tb.Window):
             
         if save_id: 
             try: self.tree.selection_set(save_id); self.tree.see(save_id); self.on_select(None)
-            except Exception:
-                pass
+            except: pass
         elif data_rows:
             fid = data_rows[0][7]
             self.tree.selection_set(fid); self.on_select(None)
         else: self.clear_preview()
 
-    def on_search_change(self, *args):
-        # simple debounce could be added if needed
-        self.refresh_library()
+    def on_search_change(self, *args): self.refresh_library()
 
     def on_select(self, event):
         sel = self.tree.selection()
@@ -329,8 +299,8 @@ class DOSManagerApp(tb.Window):
             self.btn_uninstall.configure(state=tk.NORMAL, bootstyle="danger-outline")
             self.btn_backup.configure(state=tk.NORMAL, bootstyle="info-outline")
             isos = self.logic.get_mounted_isos(name)
-            iso_txt = "\\n".join([f"• D:\\ {iso}" for iso in isos]) if isos else "None"
-            sheet_text = f"GAME: {name}\\n\\n[ DOSBox Shortcuts ]\\nCtrl+F12  : Speed Up\\nCtrl+F11  : Slow Down\\nCtrl+F4   : Swap CD/Refresh\\nAlt+Enter : Fullscreen\\nCtrl+F5   : Screenshot\\nCtrl+F10  : Lock/Unlock Mouse\\nCtrl+F9   : Kill DOSBox\\n\\n[ MOUNTED ISOs ]\\n{iso_txt}"
+            iso_txt = "\n".join([f"• D:\\ {iso}" for iso in isos]) if isos else "None"
+            sheet_text = f"GAME: {name}\n\n[ DOSBox Shortcuts ]\nCtrl+F12  : Speed Up\nCtrl+F11  : Slow Down\nCtrl+F4   : Swap CD/Refresh\nAlt+Enter : Fullscreen\nCtrl+F5   : Screenshot\nCtrl+F10  : Capture Mouse\n\n[ Mounted CDs ]\n{iso_txt}"
             self.lbl_sheet.config(text=sheet_text)
         else:
             self.btn_install.configure(state=tk.NORMAL, bootstyle="primary")
@@ -357,13 +327,8 @@ class DOSManagerApp(tb.Window):
         self.lbl_rating.config(text=STAR_SYMBOL * r)
         
         desc = self.logic.load_meta(name, ".txt")
-        try:
-            self.txt_desc.config(state=tk.NORMAL)
-            self.txt_desc.delete(1.0, tk.END)
-            self.txt_desc.insert(tk.END, desc if desc else "No description.")
-            self.txt_desc.config(state=tk.DISABLED)
-        except Exception:
-            pass
+        self.txt_desc.config(state=tk.NORMAL); self.txt_desc.delete(1.0, tk.END)
+        self.txt_desc.insert(tk.END, desc if desc else "No description."); self.txt_desc.config(state=tk.DISABLED)
 
         notes = self.logic.load_meta(name, ".notes")
         self.txt_notes.delete(1.0, tk.END)
@@ -393,7 +358,7 @@ class DOSManagerApp(tb.Window):
         else: messagebox.showerror("Backup Failed", msg)
 
     def update_image_display(self):
-        if not HAS_PILLOW or not self.current_images or Image is None or ImageTk is None:
+        if not HAS_PILLOW or not self.current_images:
             self.lbl_img.config(image='', text="No Image")
             self.lbl_img.image = None
             self.lbl_img_info.config(text="")
@@ -402,21 +367,14 @@ class DOSManagerApp(tb.Window):
             self.current_img_index = 0
         path = self.current_images[self.current_img_index]
         try:
-            img = Image.open(path)
-            # compatibility Resampling fallback
-            resample = getattr(Image, "Resampling", None)
-            if resample is not None:
-                img = img.resize((512, 384), resample.LANCZOS)
-            else:
-                img = img.resize((512, 384), Image.ANTIALIAS)
+            img = Image.open(path).resize((512, 384), Image.Resampling.LANCZOS)
             ph = ImageTk.PhotoImage(img)
             self.lbl_img.config(image=ph, text=""); self.lbl_img.image = ph
             if len(self.current_images) > 1:
                 self.lbl_img_info.config(text=f"Image {self.current_img_index + 1} of {len(self.current_images)}")
             else:
                 self.lbl_img_info.config(text="")
-        except Exception:
-            logger.exception("Failed to load image %s", path)
+        except: 
             self.lbl_img.config(image='', text="Error")
 
     def next_image(self, event=None):
@@ -439,24 +397,21 @@ class DOSManagerApp(tb.Window):
     def on_install(self):
         sel = self.tree.selection()
         if sel:
-            try:
+            try: 
                 self.logic.install_game(sel[0])
                 self.refresh_library()
             except Exception as e: messagebox.showerror("Error", str(e))
     def on_uninstall(self):
         sel = self.tree.selection()
         if sel and messagebox.askyesno("Confirm", "Uninstall game?"):
-            try:
-                self.logic.uninstall_game(sel[0])
-                self.refresh_library()
-            except Exception as e:
-                messagebox.showerror("Error", str(e))
+            self.logic.uninstall_game(sel[0])
+            self.refresh_library()
     def on_double_click(self, event):
         sel = self.tree.selection()
         if not sel: return
         tags = self.tree.item(sel[0], 'tags')
         if 'installed' in tags: self.on_play()
-        else:
+        else: 
             self.on_install()
             if 'installed' in self.tree.item(sel[0], 'tags'): self.on_play()
     def select_prev(self):
@@ -500,12 +455,143 @@ class DOSManagerApp(tb.Window):
             self.win_settings.lift()
             return
             
-        self.win_settings = SettingsWindow(
-            parent=self, 
-            settings=self.settings, 
-            restart_callback=self.restart_program, 
-            refresh_callback=self.refresh_library
-        )
+        top = tb.Toplevel(self); top.title("Settings"); top.geometry("600x650")
+        self.win_settings = top
+        
+        # --- PREMENNÉ ---
+        v_root = tk.StringVar(value=self.settings.get("root_dir"))
+        v_zip = tk.StringVar(value=self.settings.get("zip_dir"))
+        v_exe = tk.StringVar(value=self.settings.get("dosbox_exe"))
+        v_conf = tk.StringVar(value=self.settings.get("global_conf"))
+        v_capture = tk.StringVar(value=self.settings.get("capture_dir"))
+        v_theme = tk.StringVar(value=self.settings.get("theme"))
+
+        # --- TABS ---
+        tabs = tb.Notebook(top)
+        tabs.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        tab_gen = tb.Frame(tabs)
+        tab_app = tb.Frame(tabs)
+        tabs.add(tab_gen, text="System & Paths")
+        tabs.add(tab_app, text="Appearance & Themes")
+        
+        # --- TAB 1: SYSTEM ---
+        def browse_path(var, is_file=False):
+            if is_file: p = filedialog.askopenfilename(filetypes=[("Executable/Config", "*.*")], parent=top)
+            else: p = filedialog.askdirectory(parent=top)
+            if p: var.set(self.settings._make_relative(p))
+            
+        pad = 5
+        def create_row(parent, label, var, cmd=None, placeholder=None):
+            f = tb.Frame(parent); f.pack(fill=tk.X, padx=10, pady=pad)
+            tb.Label(f, text=label, bootstyle="inverse-dark").pack(anchor="w")
+            row_inner = tb.Frame(f); row_inner.pack(fill=tk.X, expand=True)
+            ent = tb.Entry(row_inner, textvariable=var)
+            ent.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            if cmd: tb.Button(row_inner, text="...", command=cmd, bootstyle="outline").pack(side=tk.RIGHT, padx=(5,0))
+            if placeholder: tb.Label(f, text=placeholder, font=("Segoe UI", 8), bootstyle="secondary").pack(anchor="w")
+
+        create_row(tab_gen, "Installed Games (Root Dir):", v_root, lambda: browse_path(v_root, False))
+        create_row(tab_gen, "Zipped Games (Source Dir):", v_zip, lambda: browse_path(v_zip, False))
+        create_row(tab_gen, "DOSBox Executable (.exe):", v_exe, lambda: browse_path(v_exe, True))
+        create_row(tab_gen, "Global Template Config (.conf):", v_conf, lambda: browse_path(v_conf, True))
+        create_row(tab_gen, "DOSBox Capture Folder Name/Path:", v_capture, lambda: browse_path(v_capture, False), "Default: 'capture'")
+
+        lbl_status = tb.Label(tab_gen, text="", font=("Segoe UI", 9, "bold"), wraplength=530, justify="center")
+        lbl_status.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
+
+        def check_portability(*args):
+            issues = []
+            def is_path_portable(val):
+                if not val: return True
+                if not os.path.isabs(val): return True
+                if val.startswith(BASE_DIR): return True
+                return False
+            if not is_path_portable(v_root.get()): issues.append("Root Dir")
+            if not is_path_portable(v_zip.get()): issues.append("Zipped Games")
+            if not is_path_portable(v_exe.get()): issues.append("DOSBox EXE")
+            if issues: lbl_status.config(text=f"NOT PORTABLE: {', '.join(issues)}", bootstyle="danger")
+            else: lbl_status.config(text="PORTABLE MODE ACTIVE", bootstyle="success")
+
+        v_root.trace("w", check_portability); v_exe.trace("w", check_portability)
+        check_portability()
+
+        # --- TAB 2: APPEARANCE ---
+        f_thm = tb.Frame(tab_app); f_thm.pack(fill=tk.X, padx=10, pady=15)
+        tb.Label(f_thm, text="Select Visual Theme:", bootstyle="inverse-dark").pack(anchor="w")
+        
+        all_themes = sorted(self.style.theme_names())
+        cb_thm = tb.Combobox(f_thm, values=all_themes, textvariable=v_theme, state="readonly")
+        cb_thm.pack(fill=tk.X, pady=(5, 10))
+        
+        def open_themes_folder():
+            themes_dir = os.path.join(BASE_DIR, "themes")
+            if not os.path.exists(themes_dir): os.makedirs(themes_dir)
+            if os.name == 'nt': os.startfile(themes_dir)
+            else: subprocess.call(['xdg-open', themes_dir])
+            
+        tb.Button(tab_app, text="📂 Open Themes Folder", command=open_themes_folder, bootstyle="info-outline").pack(fill=tk.X, padx=10)
+        
+        # --- THEME CREATOR LOGIC ---
+        # Skontrolujeme, ci je 'ttkcreator' dostupny
+        creator_installed = importlib.util.find_spec("ttkcreator") is not None
+        
+        f_creator = tb.Frame(tab_app)
+        f_creator.pack(fill=tk.X, padx=10, pady=20)
+        tb.Label(f_creator, text="Theme Creator Tool:", bootstyle="inverse-dark").pack(anchor="w")
+        
+        def run_installer():
+            try:
+                btn_install.configure(state="disabled", text="Installing... (Please wait)")
+                top.update()
+                # Volanie pip install ttkcreator
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "ttkcreator"])
+                messagebox.showinfo("Success", "Theme Creator installed successfully!\nYou may launch it now.")
+                # Update UI
+                btn_install.pack_forget()
+                btn_launch.pack(fill=tk.X, pady=5)
+            except Exception as e:
+                messagebox.showerror("Error", f"Installation failed: {e}")
+                btn_install.configure(state="normal", text="📥 Install Theme Creator")
+
+        def run_creator():
+            try:
+                # Volanie python -m ttkcreator v novom procese
+                subprocess.Popen([sys.executable, "-m", "ttkcreator"])
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to launch: {e}")
+
+        btn_install = tb.Button(f_creator, text="📥 Install Theme Creator (pip install ttkcreator)", command=run_installer, bootstyle="warning-outline")
+        btn_launch = tb.Button(f_creator, text="🎨 Launch Theme Creator", command=run_creator, bootstyle="success-outline")
+
+        if creator_installed:
+            btn_launch.pack(fill=tk.X, pady=5)
+        else:
+            btn_install.pack(fill=tk.X, pady=5)
+        
+        info_txt = ("\nCreate a theme using the tool above, save the .json file\n"
+                    "into the 'themes' folder (Open Themes Folder), and restart.")
+        tb.Label(tab_app, text=info_txt, justify=tk.LEFT, bootstyle="secondary").pack(padx=10, anchor="w")
+
+        # --- SAVE ---
+        def save():
+            old_theme = self.settings.get("theme")
+            self.settings.set("root_dir", v_root.get())
+            self.settings.set("zip_dir", v_zip.get())
+            self.settings.set("dosbox_exe", v_exe.get())
+            self.settings.set("global_conf", v_conf.get())
+            self.settings.set("capture_dir", v_capture.get())
+            self.settings.set("theme", v_theme.get())
+            self.settings.save()
+            
+            if old_theme != v_theme.get():
+                top.destroy()
+                self.restart_program()
+            else:
+                self.refresh_library()
+                top.destroy()
+
+        tb.Button(top, text="Save Settings & Restart if needed", command=save, bootstyle="success").pack(pady=10, fill=tk.X, padx=10)
 
     def open_edit_window(self):
         sel = self.tree.selection()
@@ -785,7 +871,7 @@ class DOSManagerApp(tb.Window):
             
             cdb = v_custom_dosbox.get().strip()
             if cdb: self.logic.save_meta(new_n, ".dosbox", cdb)
-            else:
+            else: 
                 p = os.path.join(self.logic.folder_info, f"{new_n}.dosbox")
                 if os.path.exists(p): os.remove(p)
 
@@ -829,7 +915,7 @@ class DOSManagerApp(tb.Window):
         name = os.path.splitext(item)[0]
         
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="✎ Edit Game Details", command=self.open_edit_window)
+        menu.add_command(label="✎ Configuration", command=self.open_edit_window)
         
         is_fav = self.logic.is_favorite(name)
         fav_label = f"💔 Remove from Favorites" if is_fav else f"{HEART_SYMBOL} Add to Favorites"
@@ -898,7 +984,7 @@ class DOSManagerApp(tb.Window):
         menu.add_command(label="Delete Current Image", command=self.del_screenshot)
         menu.post(event.x_root, event.y_root)
     def paste_screenshot(self, event=None):
-        if not HAS_PILLOW or ImageGrab is None: return
+        if not HAS_PILLOW: return
         sel = self.tree.selection()
         if not sel: return
         name = os.path.splitext(sel[0])[0]
@@ -909,8 +995,7 @@ class DOSManagerApp(tb.Window):
                 new_name = self.logic.get_next_screenshot_name(name)
                 img.save(os.path.join(target_dir, new_name))
                 self.on_select(None)
-        except Exception:
-            logger.exception("Failed to paste screenshot")
+        except: pass
     def del_screenshot(self):
         if not self.current_images: return
         if not messagebox.askyesno("Confirm", "Delete this screenshot?"): return
@@ -918,12 +1003,11 @@ class DOSManagerApp(tb.Window):
             current_path = self.current_images[self.current_img_index]
             os.remove(current_path)
             self.on_select(None)
-        except Exception:
-            logger.exception("Failed to delete screenshot")
+        except: pass
     def open_organize_dialog(self, zip_name):
         current_name = os.path.splitext(zip_name)[0]
         new_full_name = simpledialog.askstring("Standardize Structure - Step 1/2", 
-            "Enter Full Game Name (Main Folder):\\nThis will rename the game in the list.",
+            "Enter Full Game Name (Main Folder):\nThis will rename the game in the list.",
             initialvalue=current_name)
         if not new_full_name: return 
         new_full_name = new_full_name.strip()
@@ -936,7 +1020,7 @@ class DOSManagerApp(tb.Window):
         if not dos_name:
             default_dos = re.sub(r'[^a-zA-Z0-9]', '', new_full_name)[:8].upper()
             dos_name = simpledialog.askstring("Standardize Structure - Step 2/2", 
-                f"Enter 8-char MS-DOS name for inner folder:\\n(Files will be moved to drives/c/DOSNAME)",
+                f"Enter 8-char MS-DOS name for inner folder:\n(Files will be moved to drives/c/DOSNAME)",
                 initialvalue=default_dos)
         if dos_name:
             dos_name = re.sub(r'[^a-zA-Z0-9]', '', dos_name)[:8].upper()
@@ -944,5 +1028,5 @@ class DOSManagerApp(tb.Window):
             if new_zip:
                 self.refresh_library()
                 if new_zip in self.tree.get_children(): self.tree.selection_set(new_zip); self.tree.see(new_zip)
-                messagebox.showinfo("Success", f"Game organized.\\nMain Folder: {new_full_name}\\nDOS Path: C:\\\\{dos_name}")
+                messagebox.showinfo("Success", f"Game organized.\nMain Folder: {new_full_name}\nDOS Path: C:\\{dos_name}")
             else: messagebox.showerror("Error", "Failed to organize game folder.")
