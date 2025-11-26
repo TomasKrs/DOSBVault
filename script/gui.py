@@ -11,7 +11,7 @@ import importlib.util
 import re
 
 # Imports from our modules
-from constants import *
+import constants
 from utils import format_size, truncate_text, get_folder_size, get_file_size
 from settings import SettingsManager
 from logic import GameLogic, HAS_PILLOW
@@ -51,6 +51,11 @@ class DOSManagerApp(tb.Window):
         self.sort_col = "name"
         self.sort_desc = False
 
+        # --- NOVÉ PREMENNÉ PRE PREPÍNAČE ---
+        self.force_fullscreen_var = tk.BooleanVar(value=False)
+        self.hide_console_var = tk.BooleanVar(value=True) 
+        # --- KONIEC NOVÝCH PREMENNÝCH ---
+
         # 3. Initialize UI
         self.init_ui()
         self.minsize(600, 768)
@@ -63,7 +68,7 @@ class DOSManagerApp(tb.Window):
             messagebox.showinfo("Welcome", "Please configure Settings (DOSBox EXE & Folders).")
 
     def load_custom_themes(self):
-        themes_dir = os.path.join(BASE_DIR, "themes")
+        themes_dir = os.path.join(constants.BASE_DIR, "themes")
         if not os.path.exists(themes_dir): return
         for f in os.listdir(themes_dir):
             if f.endswith(".json"):
@@ -111,6 +116,7 @@ class DOSManagerApp(tb.Window):
             
             is_inst = zip_name in installed_set
             
+            # --- ZBER DÁT ---
             g = self.logic.load_meta(name_no_zip, ".genre")
             y = self.logic.load_meta(name_no_zip, ".year")
             c = self.logic.load_meta(name_no_zip, ".company")
@@ -119,32 +125,36 @@ class DOSManagerApp(tb.Window):
             h_sz = get_folder_size(os.path.join(self.logic.installed_dir, name_no_zip)) if is_inst else 0
             
             prefix = "✓" if is_inst else "…"
-            disp = f"{prefix} {name_no_zip}"
-            if is_fav: disp += f" ★"
+            disp_name = f"{prefix} {name_no_zip}"
+            if is_fav: disp_name += f" ★"
             
             tag = 'installed' if is_inst else 'zipped'
             rating_stars = "★" * r if r else ""
+            
             row_data = {
-                "disp_name": disp, "genre": g, "year": y, "company": c,
-                "rating_str": rating_stars, "zip_str": format_size(z_sz), "hdd_str": format_size(h_sz),
-                "id": zip_name, "tag": tag, "rating_val": r, "zip_val": z_sz, "hdd_val": h_sz
+                "name": disp_name, "genre": g, "year": y, "company": c,
+                "rating": rating_stars, "zip": format_size(z_sz), "hdd": format_size(h_sz),
+                "id": zip_name, "tag": tag, 
+                "_sort_rating": r, "_sort_zip": z_sz, "_sort_hdd": h_sz
             }
             data_rows.append(row_data)
             
-        # Sorting
+        # --- TRIEDENIE ---
         sort_map = { "name": "id", "genre": "genre", "company": "company", "year": "year",
-                     "rating": "rating_val", "zip": "zip_val", "hdd": "hdd_val" }
+                     "rating": "_sort_rating", "zip": "_sort_zip", "hdd": "_sort_hdd" }
         sort_key_name = sort_map.get(self.sort_col, "id")
         
-        data_rows.sort(key=lambda item: (item[sort_key_name] or "").lower() if isinstance(item[sort_key_name], str) else (item[sort_key_name] or 0), 
+        data_rows.sort(key=lambda item: (item.get(sort_key_name) or "").lower() if isinstance(item.get(sort_key_name), str) else (item.get(sort_key_name) or 0), 
                        reverse=self.sort_desc)
 
-        # Inserting into tree
+        # --- VKLADANIE DO TABUĽKY ---
+        visible_columns = self.tree["columns"]
+        
         for row in data_rows:
-            values = (row["disp_name"], row["genre"], row["year"], row["company"], row["rating_str"], row["zip_str"], row["hdd_str"])
-            self.tree.insert("", "end", iid=row["id"], values=values, tags=(row["tag"],))
+            values_to_insert = [row.get(col_id) for col_id in visible_columns]
+            self.tree.insert("", "end", iid=row["id"], values=values_to_insert, tags=(row["tag"],))
             
-        # Reselect item
+        # --- ZNOVU-VYBRANIE POLOŽKY ---
         if save_id and self.tree.exists(save_id):
             self.tree.selection_set(save_id)
             self.tree.see(save_id)
@@ -165,7 +175,6 @@ class DOSManagerApp(tb.Window):
         tags = self.tree.item(zip_name, 'tags')
         is_installed = 'installed' in tags
         
-        # Update detail panel widgets
         dp = self.detail_panel
         dp.btn_edit.configure(state=tk.NORMAL)
         if is_installed:
@@ -280,8 +289,12 @@ class DOSManagerApp(tb.Window):
     def on_play(self):
         zip_name = self._get_selected_zip()
         if zip_name:
-            try: self.logic.launch_game(zip_name)
-            except Exception as e: messagebox.showerror("Error", str(e))
+            try:
+                fullscreen = self.force_fullscreen_var.get()
+                hide_console = self.hide_console_var.get()
+                self.logic.launch_game(zip_name, force_fullscreen=fullscreen, hide_console=hide_console)
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
             
     def on_install(self):
         zip_name = self._get_selected_zip()
@@ -302,7 +315,9 @@ class DOSManagerApp(tb.Window):
         if not zip_name: return
         tags = self.tree.item(zip_name, 'tags')
         if 'installed' in tags:
-            self.on_play()
+            fullscreen = self.force_fullscreen_var.get()
+            hide_console = self.hide_console_var.get()
+            self.logic.launch_game(zip_name, force_fullscreen=fullscreen, hide_console=hide_console)
         else: 
             self.on_install()
     
@@ -377,18 +392,15 @@ class DOSManagerApp(tb.Window):
 
         if is_inst:
             exe_map = self.logic.load_exe_map(name)
-            # Main 'Play' command
-            main_exe = next((exe for exe, info in exe_map.items() if info.get("role") == ROLE_MAIN), None)
+            main_exe = next((exe for exe, info in exe_map.items() if info.get("role") == constants.ROLE_MAIN), None)
             if main_exe:
                  menu.add_command(label="▶ Play Game", command=self.on_play)
 
-            # Setup command
-            setup_exe = next((exe for exe, info in exe_map.items() if info.get("role") == ROLE_SETUP), None)
+            setup_exe = next((exe for exe, info in exe_map.items() if info.get("role") == constants.ROLE_SETUP), None)
             if setup_exe:
                  menu.add_command(label="⚙ Setup Game", command=lambda i=item_id, x=setup_exe: self.logic.launch_game(i, x))
             
-            # Custom commands submenu
-            custom_items = [(info.get("title", os.path.basename(exe)), exe) for exe, info in exe_map.items() if info.get("role") == ROLE_CUSTOM]
+            custom_items = [(info.get("title", os.path.basename(exe)), exe) for exe, info in exe_map.items() if info.get("role") == constants.ROLE_CUSTOM]
             if custom_items:
                 sub_custom = tb.Menu(menu, tearoff=0)
                 for title, exe in custom_items:
@@ -402,7 +414,6 @@ class DOSManagerApp(tb.Window):
             menu.add_command(label="✨ Standardize Structure", command=lambda i=item_id: self.open_organize_dialog(i))
             menu.add_command(label="💻 Run DOSBox (CMD)", command=lambda i=item_id: self.logic.launch_dosbox_prompt(i))
             
-            # Run specific EXE submenu
             all_exes = self.logic.scan_game_executables(item_id)
             if all_exes:
                 sub_all = tb.Menu(menu, tearoff=0)
@@ -445,8 +456,8 @@ class DOSManagerApp(tb.Window):
         try:
             img = ImageGrab.grabclipboard()
             if isinstance(img, Image.Image):
-                new_path = self.logic.save_screenshot_from_clipboard(name, img)
-                self.on_select(None) # Refresh details
+                self.logic.save_screenshot_from_clipboard(name, img)
+                self.on_select(None)
         except Exception as e:
             print(f"Paste screenshot failed: {e}")
 
@@ -456,7 +467,7 @@ class DOSManagerApp(tb.Window):
         try:
             current_path = self.current_images[self.current_img_index]
             os.remove(current_path)
-            self.on_select(None) # Refresh details
+            self.on_select(None)
         except Exception as e:
             messagebox.showerror("Error", f"Could not delete image: {e}")
 
@@ -468,7 +479,6 @@ class DOSManagerApp(tb.Window):
         if not new_full_name: return 
         new_full_name = new_full_name.strip()
         
-        # Logic to suggest a DOS-compatible name
         dos_name_suggestion = re.sub(r'[^a-zA-Z0-9]', '', new_full_name)[:8].upper()
         dos_name = simpledialog.askstring("Standardize Structure - Step 2/2", 
             f"Enter 8-char MS-DOS name for inner folder:\n(Files will be moved to drives/c/DOSNAME)",

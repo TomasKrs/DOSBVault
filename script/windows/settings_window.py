@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox # PRIDANÝ IMPORT
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 import os
@@ -8,7 +8,7 @@ import subprocess
 import importlib.util
 
 # Imports from our modules
-from constants import BASE_DIR
+import constants
 
 class SettingsWindow(tb.Toplevel):
     def __init__(self, parent_app):
@@ -17,7 +17,7 @@ class SettingsWindow(tb.Toplevel):
         self.settings = parent_app.settings
         
         self.title("Settings")
-        self.geometry("600x650")
+        self.geometry("600x700")
 
         # --- VARIABLES ---
         self.v_root = tk.StringVar(value=self.settings.get("root_dir"))
@@ -37,17 +37,19 @@ class SettingsWindow(tb.Toplevel):
         
         tab_gen = tb.Frame(tabs)
         tab_app = tb.Frame(tabs)
+        tab_playlist = tb.Frame(tabs) # Nová záložka
+        
         tabs.add(tab_gen, text="System & Paths")
         tabs.add(tab_app, text="Appearance & Themes")
+        tabs.add(tab_playlist, text="Playlist Columns") # Nová záložka
         
-        # --- TAB 1: SYSTEM ---
+        # --- Build Tabs ---
         self._build_system_tab(tab_gen)
-        
-        # --- TAB 2: APPEARANCE ---
         self._build_appearance_tab(tab_app)
+        self._build_playlist_tab(tab_playlist) # Nová metóda
         
         # --- SAVE ---
-        tb.Button(self, text="Save Settings & Restart if needed", command=self._save, bootstyle="success").pack(pady=10, fill=tk.X, padx=10)
+        tb.Button(self, text="Save Settings & Close", command=self._save, bootstyle="success").pack(pady=10, fill=tk.X, padx=10)
 
     def _build_system_tab(self, parent):
         self._create_path_row(parent, "Installed Games (Root Dir):", self.v_root, is_file=False)
@@ -80,6 +82,30 @@ class SettingsWindow(tb.Toplevel):
         info_txt = ("\nCreate a theme using the tool above, save the .json file\n"
                     "into the 'themes' folder (Open Themes Folder), and restart.")
         tb.Label(parent, text=info_txt, justify=tk.LEFT, bootstyle="secondary").pack(padx=10, anchor="w")
+
+    def _build_playlist_tab(self, parent):
+        tb.Label(parent, text="Select columns to display in the game list:", bootstyle="inverse-dark").pack(anchor="w", padx=10, pady=(10,5))
+        
+        self.playlist_vars = {}
+        # Stĺpec 'name' je povinný a nedá sa skryť
+        all_cols = ("genre", "year", "company", "rating", "zip", "hdd")
+        current_hidden = self.settings.get("hidden_columns") or []
+        
+        f_cols = tb.Frame(parent)
+        f_cols.pack(fill=tk.BOTH, padx=10, pady=5)
+        
+        # Prvý stĺpec 'Name' je vždy zobrazený
+        name_var = tk.BooleanVar(value=True)
+        name_cb = tb.Checkbutton(f_cols, text="Name", variable=name_var, bootstyle="round-toggle", state="disabled")
+        name_cb.grid(row=0, column=0, sticky='w', padx=15, pady=5)
+        
+        # Ostatné stĺpce
+        for i, col_name in enumerate(all_cols):
+            var = tk.BooleanVar(value=(col_name not in current_hidden))
+            cb = tb.Checkbutton(f_cols, text=col_name.title(), variable=var, bootstyle="round-toggle")
+            # +1, aby sme preskočili 'Name'
+            cb.grid(row=(i+1)//2, column=(i+1)%2, sticky='w', padx=15, pady=5)
+            self.playlist_vars[col_name] = var
 
     def _build_theme_creator_section(self, parent):
         creator_installed = importlib.util.find_spec("ttkcreator") is not None
@@ -121,7 +147,7 @@ class SettingsWindow(tb.Toplevel):
         def is_path_portable(val):
             if not val: return True
             if not os.path.isabs(val): return True
-            if val.startswith(BASE_DIR): return True
+            if val.startswith(constants.BASE_DIR): return True
             return False
         
         if not is_path_portable(self.v_root.get()): issues.append("Root Dir")
@@ -134,7 +160,7 @@ class SettingsWindow(tb.Toplevel):
             self.lbl_status.config(text="PORTABLE MODE ACTIVE", bootstyle="success")
 
     def _open_themes_folder(self):
-        themes_dir = os.path.join(BASE_DIR, "themes")
+        themes_dir = os.path.join(constants.BASE_DIR, "themes")
         if not os.path.exists(themes_dir):
             os.makedirs(themes_dir)
         if os.name == 'nt':
@@ -147,30 +173,43 @@ class SettingsWindow(tb.Toplevel):
             btn_install.configure(state="disabled", text="Installing... (Please wait)")
             self.update()
             subprocess.check_call([sys.executable, "-m", "pip", "install", "ttkcreator"])
-            tk.messagebox.showinfo("Success", "Theme Creator installed successfully!\nYou may launch it now.", parent=self)
+            messagebox.showinfo("Success", "Theme Creator installed successfully!\nYou may launch it now.", parent=self)
             btn_install.pack_forget()
             btn_launch.pack(fill=tk.X, pady=5)
         except Exception as e:
-            tk.messagebox.showerror("Error", f"Installation failed: {e}", parent=self)
+            messagebox.showerror("Error", f"Installation failed: {e}", parent=self)
             btn_install.configure(state="normal", text="📥 Install Theme Creator")
 
     def _run_creator(self):
         try:
             subprocess.Popen([sys.executable, "-m", "ttkcreator"])
         except Exception as e:
-            tk.messagebox.showerror("Error", f"Failed to launch: {e}", parent=self)
+            messagebox.showerror("Error", f"Failed to launch: {e}", parent=self)
 
     def _save(self):
+        # Načítanie starých hodnôt pre porovnanie
         old_theme = self.settings.get("theme")
+        old_hidden_columns = self.settings.get("hidden_columns") or []
+
+        # Uloženie nových hodnôt
         self.settings.set("root_dir", self.v_root.get())
         self.settings.set("zip_dir", self.v_zip.get())
         self.settings.set("dosbox_exe", self.v_exe.get())
         self.settings.set("global_conf", self.v_conf.get())
         self.settings.set("capture_dir", self.v_capture.get())
         self.settings.set("theme", self.v_theme.get())
+
+        new_hidden_columns = [col for col, var in self.playlist_vars.items() if not var.get()]
+        self.settings.set("hidden_columns", new_hidden_columns)
+        
         self.settings.save()
         
-        if old_theme != self.v_theme.get():
+        # Kontrola, či je potrebný reštart
+        theme_changed = old_theme != self.v_theme.get()
+        columns_changed = set(old_hidden_columns) != set(new_hidden_columns)
+
+        if theme_changed or columns_changed:
+            messagebox.showinfo("Restart Required", "Settings have been changed that require a restart.", parent=self)
             self.destroy()
             self.parent_app.restart_program()
         else:
