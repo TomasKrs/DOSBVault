@@ -1,65 +1,37 @@
-import os
 import json
-from constants import BASE_DIR
+import os
 
 class SettingsManager:
-    def __init__(self):
-        self.config_file = os.path.join(BASE_DIR, "launcher_settings.json")
-        self.defaults = {
-            "root_dir": "dosroot",
-            "zip_dir": "zipped",
-            "dosbox_exe": "", 
-            "global_conf": "",
-            "capture_dir": "capture",
-            "theme": "darkly"
-        }
-        self.paths = self.defaults.copy()
-        self.load()
+    def __init__(self, filename="settings.json"):
+        self.filepath = filename
+        self.settings = self._load_settings()
+        self._migrate_dosbox_setting()
 
-    def _make_absolute(self, path):
-        if not path: return ""
-        if os.path.isabs(path): return path
-        return os.path.normpath(os.path.join(BASE_DIR, path))
+    def _load_settings(self):
+        if os.path.exists(self.filepath):
+            with open(self.filepath, 'r') as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    return {}
+        return {}
 
-    def _make_relative(self, path):
-        if not path: return ""
-        abs_path = os.path.abspath(path)
-        abs_base = os.path.abspath(BASE_DIR)
-        try:
-            common = os.path.commonpath([abs_base, abs_path])
-            if common == abs_base:
-                return os.path.relpath(abs_path, abs_base)
-        except: pass
-        return path
+    def _save_settings(self):
+        with open(self.filepath, 'w') as f:
+            json.dump(self.settings, f, indent=4)
 
-    def load(self):
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r') as f:
-                    data = json.load(f)
-                    self.paths.update(data)
-            except: pass
+    def _migrate_dosbox_setting(self):
+        if "dosbox_exe" in self.settings:
+            path = self.settings.get("dosbox_exe")
+            if path and isinstance(path, str):
+                new_structure = [{"name": "Default", "path": path, "default": True}]
+                self.settings["dosbox_installations"] = new_structure
+            del self.settings["dosbox_exe"]
+            self._save_settings()
 
-    def save(self):
-        try:
-            with open(self.config_file, 'w') as f:
-                json.dump(self.paths, f, indent=4)
-        except Exception as e:
-            print(f"Config save error: {e}")
-
-    def get(self, key):
-        val = self.paths.get(key, self.defaults.get(key, ""))
-        if key in ["root_dir", "zip_dir", "dosbox_exe", "global_conf", "capture_dir"]:
-            if key == "capture_dir" and not os.path.isabs(val) and os.sep not in val:
-                return val
-            return self._make_absolute(val)
-        return val
+    def get(self, key, default=None):
+        return self.settings.get(key, default)
 
     def set(self, key, value):
-        if key in ["root_dir", "zip_dir", "dosbox_exe", "global_conf", "capture_dir"]:
-            if key == "capture_dir" and not os.path.isabs(value) and os.sep not in value:
-                self.paths[key] = value
-            else:
-                self.paths[key] = self._make_relative(value)
-        else:
-            self.paths[key] = value
+        self.settings[key] = value
+        self._save_settings()
